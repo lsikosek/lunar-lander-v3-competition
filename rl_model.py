@@ -78,10 +78,7 @@ class RLModel(nn.Module):
             obs_t = self._rollout_last_obs
             logits, _ = self.forward(torch.from_numpy(obs_t).to(device))
 
-            ## TODO:
-            # Compute the action index using the model forward function:
-            # actions = ...
-            raise NotImplementedError("")
+            actions = torch.multinomial(F.softmax(logits, dim=-1), 1).squeeze(1).cpu().numpy()
 
             next_obs = np.zeros_like(obs_t)
             for i, env in enumerate(env_list):
@@ -130,19 +127,20 @@ class RLModel(nn.Module):
         with torch.no_grad():
             _, last_value = self.forward(last_obs)  # (B,)
 
-        ## TODO:
-        # 1) Compute the future returns with discount factor gamma
-        # Warning: The episode ends when is_done is True
-        # returns = ...
-        #
-        # 2) We will implement the A2C actor critic algorithm.
-        # Compute the following losses
-        # value_loss = ...
-        # policy_loss = ...
-        #
-        # 3) compute the term of entropy regularizationo of the action distribution:
-        # entropy = ...
-        raise NotImplementedError("")
+        returns = torch.empty_like(rewards)
+        future_return = last_value
+        for t in range(T - 1, -1, -1):
+            future_return = rewards[:, t] + self.gamma * future_return * (1.0 - is_done[:, t])
+            returns[:, t] = future_return
+
+        advantage = returns - values
+        value_loss = F.mse_loss(values, returns)
+
+        log_probs = F.log_softmax(logits, dim=-1)
+        action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+        policy_loss = -(action_log_probs * advantage.detach()).mean()
+
+        entropy = -(log_probs.exp() * log_probs).sum(dim=-1).mean()
 
         loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
 
