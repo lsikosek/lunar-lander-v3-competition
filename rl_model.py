@@ -22,7 +22,7 @@ class RLModel(nn.Module):
     no RNN state. Trained with n-step A2C using `loss_a2c`.
     """
 
-    def __init__(self, obs_dim, num_actions, hidden=128, reward_scale=10.0, gamma=0.99):
+    def __init__(self, obs_dim, num_actions, hidden=256, reward_scale=10.0, gamma=0.99):
         super().__init__()
         self.obs_dim = obs_dim
         self.num_actions = num_actions
