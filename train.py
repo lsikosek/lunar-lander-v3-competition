@@ -8,9 +8,9 @@ from rl_model import RLModel
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--n_envs", type=int, default=16)
-    p.add_argument("--n_steps", type=int, default=100)
-    p.add_argument("--n_iterations", type=int, default=5000)
+    p.add_argument("--n_envs", type=int, default=16) # ok
+    p.add_argument("--n_steps", type=int, default=100) # ok
+    p.add_argument("--n_iterations", type=int, default=5000) # ok
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--gamma", type=float, default=0.99)
     p.add_argument("--hidden", type=int, default=256)
@@ -18,8 +18,8 @@ def main():
     p.add_argument("--value_coef", type=float, default=0.5)
     p.add_argument("--reward_scale", type=float, default=10.0)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--log_every", type=int, default=10)
-    p.add_argument("--save_every", type=int, default=50)
+    p.add_argument("--log_every", type=int, default=10) # ok
+    p.add_argument("--save_every", type=int, default=50) # ok
     p.add_argument("--save", default="model.pt")
     args = p.parse_args()
 

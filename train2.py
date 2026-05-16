@@ -1,0 +1,173 @@
+import argparse
+import numpy as np
+import torch
+
+from env import make_env
+from rl_model import RLModel
+
+
+@torch.inference_mode()
+def greedy_evaluate(model, n_episodes=20):
+    """
+    Evaluate the current model using greedy argmax actions,
+    matching how Agent.choose_action behaves during eval/submission.
+    """
+    device = next(model.parameters()).device
+    env = make_env()
+
+    was_training = model.training
+    model.eval()
+
+    returns = []
+
+    for _ in range(n_episodes):
+        obs, _ = env.reset()
+        total = 0.0
+
+        while True:
+            obs_t = torch.from_numpy(np.asarray(obs, dtype=np.float32))[None, :].to(device)
+
+            logits, _ = model(obs_t)
+            action = int(logits.argmax(dim=-1).item())
+
+            obs, reward, terminated, truncated, info = env.step(action)
+            total += reward
+
+            if terminated or truncated:
+                break
+
+        returns.append(total)
+
+    env.close()
+
+    if was_training:
+        model.train()
+
+    return float(np.mean(returns)), float(np.std(returns))
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--n_envs", type=int, default=16) # ok
+    p.add_argument("--n_steps", type=int, default=100) # ok
+    p.add_argument("--n_iterations", type=int, default=5000) # ok
+    p.add_argument("--lr", type=float, default=1e-4)
+    p.add_argument("--gamma", type=float, default=0.99)
+
+    p.add_argument("--hidden", type=int, default=256)
+    p.add_argument("--entropy_coef", type=float, default=0.001)
+    p.add_argument("--value_coef", type=float, default=0.5)
+    p.add_argument("--reward_scale", type=float, default=10.0)
+
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--log_every", type=int, default=10)
+
+    p.add_argument("--eval_every", type=int, default=50)
+    p.add_argument("--eval_episodes", type=int, default=20)
+
+    p.add_argument("--save", default="model.pt")
+    p.add_argument("--best_save", default="best_model.pt")
+
+    args = p.parse_args()
+
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    envs = [make_env() for _ in range(args.n_envs)]
+
+    model = RLModel(
+        obs_dim=8,
+        num_actions=4,
+        hidden=args.hidden,
+        reward_scale=args.reward_scale,
+        gamma=args.gamma,
+    )
+
+    if torch.cuda.is_available():
+        print("Using CUDA.")
+        model.cuda()
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+    ep_return = np.zeros(args.n_envs, dtype=np.float32)
+    completed = []
+
+    best_eval_return = -float("inf")
+
+    for it in range(args.n_iterations):
+        rollout = model.collect_rollouts(envs, args.n_steps)
+
+        for t in range(args.n_steps):
+            ep_return += rollout["rewards"][:, t]
+            for i in range(args.n_envs):
+                if rollout["is_done"][i, t]:
+                    completed.append(float(ep_return[i]))
+                    ep_return[i] = 0.0
+
+        model.train()
+        optimizer.zero_grad()
+
+        losses = model.loss_a2c(
+            rollout,
+            entropy_coef=args.entropy_coef,
+            value_coef=args.value_coef,
+        )
+
+        losses["loss"].backward()
+
+        # prevent unstable updates
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+
+        optimizer.step()
+
+        if it % args.log_every == 0:
+            recent = completed[-50:] if completed else [0.0]
+            print(
+                f"iter {it:5d}  "
+                f"loss {losses['loss'].item():7.3f}  "
+                f"pi {losses['policy_loss'].item():6.3f}  "
+                f"v {losses['value_loss'].item():6.3f}  "
+                f"H {losses['entropy'].item():5.3f}  "
+                f"train_return {np.mean(recent):7.2f} "
+                f"(last {len(recent)} eps)",
+                flush=True,
+            )
+
+        if it > 0 and it % args.eval_every == 0:
+            eval_mean, eval_std = greedy_evaluate(
+                model,
+                n_episodes=args.eval_episodes,
+            )
+
+            print(
+                f"GREEDY EVAL at iter {it:5d}: "
+                f"{eval_mean:7.2f} +- {eval_std:6.2f} "
+                f"over {args.eval_episodes} episodes",
+                flush=True,
+            )
+
+            if eval_mean > best_eval_return:
+                best_eval_return = eval_mean
+                model.save(args.best_save)
+                print(
+                    f"saved new best greedy model to {args.best_save} "
+                    f"with eval return {best_eval_return:.2f}",
+                    flush=True,
+                )
+
+    # save final/end model to model.pt
+    model.save(args.save)
+    print(f"saved final model to {args.save}")
+
+    if best_eval_return > -float("inf"):
+        print(f"best greedy eval return: {best_eval_return:.2f}")
+        print(f"best greedy model saved to: {args.best_save}")
+    else:
+        print("no greedy evaluation was run; consider lowering --eval_every")
+
+    for env in envs:
+        env.close()
+
+
+if __name__ == "__main__":
+    main()
