@@ -13,8 +13,8 @@ def main():
     p.add_argument("--n_iterations", type=int, default=5000)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--gamma", type=float, default=0.99)
-    p.add_argument("--hidden", type=int, default=64)
-    p.add_argument("--entropy_coef", type=float, default=0.01)
+    p.add_argument("--hidden", type=int, default=128)
+    p.add_argument("--entropy_coef", type=float, default=0.001)
     p.add_argument("--value_coef", type=float, default=0.5)
     p.add_argument("--reward_scale", type=float, default=10.0)
     p.add_argument("--seed", type=int, default=0)
@@ -31,6 +31,7 @@ def main():
     model = RLModel(obs_dim=8, num_actions=4, hidden=args.hidden,
                     reward_scale=args.reward_scale, gamma=args.gamma)
     if torch.cuda.is_available():
+        print("Using CUDA.")
         model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 

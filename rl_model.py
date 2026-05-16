@@ -7,7 +7,9 @@ import torch.nn.functional as F
 def mlp(in_dim, out_dim, hidden):
     return nn.Sequential(
         nn.Linear(in_dim, hidden),
-        nn.ReLU(),
+        nn.Tanh(),
+        nn.Linear(hidden,hidden),
+        nn.Tanh(),
         nn.Linear(hidden, out_dim),
     )
 
@@ -134,11 +136,13 @@ class RLModel(nn.Module):
             returns[:, t] = future_return
 
         advantage = returns - values
+        norm_advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8) # Normalize
+
         value_loss = F.mse_loss(values, returns)
 
         log_probs = F.log_softmax(logits, dim=-1)
         action_log_probs = log_probs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
-        policy_loss = -(action_log_probs * advantage.detach()).mean()
+        policy_loss = -(action_log_probs * norm_advantage.detach()).mean()
 
         entropy = -(log_probs.exp() * log_probs).sum(dim=-1).mean()
 
